@@ -73,7 +73,6 @@
 #define YDLE_MAX_FRAME 2
 
 #define YDLE_MAX_SIZE_FRAME 64
-// 1 sec timeout for ack
 #define YDLE_ACK_TIMEOUT 250
 
 #define YDLE_TYPE_STATE				1 // Node send data
@@ -81,7 +80,7 @@
 #define YDLE_TYPE_ACK						3 // Acquit last command
 #define YDLE_TYPE_STATE_ACK	4 // Node send data and want ACK
 
-#define YDLE_DATA_BOOL					0 // On - OFF (1 bit / 8 bits data)
+#define YDLE_DATA_BOOL					0 // true / false (1 bit / 8 bits data)
 #define YDLE_DATA_UINT8				1 // (8 bits / 16 bits data)
 #define YDLE_DATA_UINT16			2 // (16 bits / 24 bits data)
 #define YDLE_DATA_UINT24			3 // (24 bits / 32 bits data)
@@ -155,10 +154,10 @@ class ydle
     void listenSignal() ;
 
     // Crée une trame avec les infos données en paramètre
-    void dataToFrame(Frame_t *frame, unsigned long destination, unsigned long sender, unsigned long type) ;
+    void initFrame(Frame_t *frame, unsigned long destination, unsigned long sender, unsigned long type) ;
 
     // Crée une trame avec le type
-    void dataToFrame(Frame_t *frame, unsigned long type) ;
+    void initFrame(Frame_t *frame, unsigned long type) ;
 
     // extract any type of data from receivedsignal
     int extractData(Frame_t *frame, int index, int &itype, long &ivalue) ;
@@ -175,9 +174,6 @@ class ydle
     //~ int isSignal() ;
     //~ bool isDone() ;
 
-    // CRC calculation
-    unsigned char computeCrc(Frame_t *frame) ;
-
     // Launch the timer for the receive function
     void init_timer() ;
 
@@ -187,23 +183,25 @@ class ydle
     // Remove EEProm values & change initialized state
     static void resetNode() ;
 
-    // float to half conversion
-    union _FP16 floatToHalf(float number) ;
-
+    // Ajout d'une donnée
     void addData(Frame_t *frame, int type, bool data) ;
     void addData(Frame_t *frame, int type, int data) ;
+    void addData(Frame_t *frame, int type, long int data) ;
     void addData(Frame_t *frame, int type, float data) ;
-    //~ void addData(Frame_t *frame, int type, float fdata) ;
+
+    // CRC calculation
+    unsigned char computeCrc(Frame_t *frame) ;
 
   private:
     // Fonctions de débogage
     void log(String msg) ;
     void log(String msg, int i) ;
+
     // Affiche le contenue d'une trame reçue
     void printFrame(Frame_t *trame) ;
 
     // Do something with a received Command
-    void handleReceivedFrame(Frame_t *frame) ;
+    void onFrameReceived(Frame_t *frame) ;
 
     // Compare le signal reçu au signal de référence
     bool checkSignal(Frame_t *frame) ;

@@ -59,8 +59,6 @@ const PROGMEM char _atm_crc8_table[256] = {
 };
 
 
-//~ static Frame_t g_m_receivedframe;  // received frame
-//~ static Frame_t g_frameBuffer[YDLE_MAX_FRAME];
 static Frame_t g_sendFrameBuffer; // Une seule pour le moment
 
 static uint8_t m_data[YDLE_MAX_SIZE_FRAME]; // data + crc
@@ -267,6 +265,7 @@ void ydle::pll()
     // Si l'on est dans le message, c'est ici qu'on traite les données
     if (rx_active)
     {
+      log("ok");
       bit_count++;
       // On récupére les bits et on les places dans des variables
       // 1 bit sur 2 avec Manchester
@@ -367,6 +366,8 @@ void ydle::pll()
   }
 }
 
+/***************************************************************************************/
+
 // Remove EEProm values & change initialized state
 void ydle::resetNode()
 {
@@ -414,6 +415,8 @@ void ydle::attach(ydleCallbackFunction function)
   this->_callback_set = true;
 }
 
+/***************************************************************************************/
+
 // Synchronise l'AGC, envoie l'octet de start puis transmet la trame
 uint8_t ydle::send(Frame_t *frame)
 {
@@ -429,10 +432,6 @@ uint8_t ydle::send(Frame_t *frame)
       wait_ack = 1;
     }
   }
-
-  #ifdef _YDLE_DEBUG
-  printFrame(frame);
-  #endif
 
   // From now, we are ready to transmit the frame
   while(rx_active)
@@ -450,6 +449,10 @@ uint8_t ydle::send(Frame_t *frame)
 
   // calcul crc
   frame->crc = computeCrc(frame);
+
+  #ifdef _YDLE_DEBUG
+  printFrame(frame);
+  #endif
 
   uint8_t index =0;
   frameToSendLength = 7 + frame->taille;
@@ -487,8 +490,8 @@ uint8_t ydle::receive()
       if (crc_p != m_FrameBuffer[i].crc)
       {
         #ifdef _YDLE_DEBUG
-        printFrame(&m_FrameBuffer[i]);
         log("crc error!!!!!!!!!");
+        printFrame(&m_FrameBuffer[i]);
         #endif // _YDLE_DEBUG
       } else {
         #ifdef _YDLE_DEBUG
@@ -497,17 +500,17 @@ uint8_t ydle::receive()
         // We receive a CMD so trait it
         if (m_FrameBuffer[i].type == YDLE_TYPE_CMD)
         {
-          handleReceivedFrame(&m_FrameBuffer[i]);
           #ifdef _YDLE_DEBUG
           printFrame(&m_FrameBuffer[i]);
           #endif // _YDLE_DEBUG
+          onFrameReceived(&m_FrameBuffer[i]);
         } else if (m_FrameBuffer[i].type == YDLE_TYPE_ACK)
         {
-          #ifdef _YDLE_DEBUG
-          log("ACK received");
-          #endif // _YDLE_DEBUG
           if (m_FrameBuffer[i].sender == g_sendFrameBuffer.receptor
               && m_FrameBuffer[i].receptor == g_sendFrameBuffer.sender) {
+            #ifdef _YDLE_DEBUG
+            log("ACK received");
+            #endif // _YDLE_DEBUG
             wait_ack = 0;
             retry = 0;
             last_check = 0;
@@ -557,13 +560,14 @@ uint8_t ydle::receive()
 }
 
 // Do something with a received Command
-void ydle::handleReceivedFrame(Frame_t *frame)
+void ydle::onFrameReceived(Frame_t *frame)
 {
   int litype;
   long livalue;
+	int index = 0;
 
-  // If data extracted
-  if (this->extractData(frame, 0, litype, livalue) == 1)
+	// TODO: Need a better method to get the data
+  while (this->extractData(frame, index, litype, livalue) == 1)
   {
     #ifdef _YDLE_DEBUG
     log("Type of CMD Message Received ", litype);
@@ -603,16 +607,18 @@ void ydle::handleReceivedFrame(Frame_t *frame)
       log("**************Send ACK********************");
       #endif
       Frame_t response;
-      memset(&response, 0, sizeof(response));
-      dataToFrame(&response, YDLE_TYPE_ACK);    // Create a new ACK Frame
+      initFrame(&response, YDLE_TYPE_ACK);    // Create a new ACK Frame
       #ifdef _YDLE_DEBUG
-      //printFrame(&response);
       log("End send ack");
       #endif
       send(&response);
     }
+		index++;
   }
+
 }
+
+/***************************************************************************************/
 
 // Comparaison du signal reçu et du signal de référence
 bool ydle::checkSignal(Frame_t *frame)
@@ -624,7 +630,7 @@ bool ydle::checkSignal(Frame_t *frame)
 }
 
 // Fonction qui crée une trame avec les infos fournies
-void ydle::dataToFrame(Frame_t *frame, unsigned long destination, unsigned long sender, unsigned long type)
+void ydle::initFrame(Frame_t *frame, unsigned long destination, unsigned long sender, unsigned long type)
 {
   frame->sender = sender;
   frame->receptor = destination;
@@ -635,16 +641,12 @@ void ydle::dataToFrame(Frame_t *frame, unsigned long destination, unsigned long 
 }
 
 // Fonction qui crée une trame avec un type fournie
-void ydle::dataToFrame(Frame_t *frame, unsigned long type)
+void ydle::initFrame(Frame_t *frame, unsigned long type)
 {
-  dataToFrame(frame, m_Config.IdMaster, m_Config.IdNode, type);
+  initFrame(frame, m_Config.IdMaster, m_Config.IdNode, type);
 }
 
-// Fonction qui retourne "true" si la Node est initialisée
-bool ydle::initialized()
-{
-  return m_initializedState;
-}
+/***************************************************************************************/
 
 //~ int ydle::isSignal()
 //~ {
@@ -760,6 +762,8 @@ int ydle::extractData(Frame_t *frame, int index, int &itype, long &ivalue)
   return 0;
 }
 
+/***************************************************************************************/
+
 // add TYPE_CMD data
 void ydle::addCmd(Frame_t *frame, int type, int data)
 {
@@ -778,6 +782,7 @@ void ydle::addCmd(Frame_t *frame, int type, int data)
 // Ajout d'une valeur bool
 void ydle::addData(Frame_t *frame, int type, bool data)
 {
+  log("addData bool");
   if (frame->taille < 29)
   {
     frame->data[frame->taille] = type << 4;
@@ -791,19 +796,20 @@ void ydle::addData(Frame_t *frame, int type, bool data)
   #endif // _YDLE_DEBUG
 }
 
-// Ajout d'une valeur bool
+// Ajout d'une valeur int
 void ydle::addData(Frame_t *frame, int type, int data)
 {
   // 8 bits int
   if (data > -256 && data < 256)
   {
+    log("addData int 8");
     if (frame->taille < 28) 
     {
       frame->data[frame->taille] = type << 4;
       frame->data[frame->taille] += YDLE_DATA_UINT8 << 1;
       frame->data[frame->taille] += (data < 0 ? 1 : 0) << 0;
       frame->data[frame->taille + 1] = data;
-      frame->taille += 4;
+      frame->taille += 2;
     }
     #ifdef _YDLE_DEBUG
     else
@@ -813,6 +819,7 @@ void ydle::addData(Frame_t *frame, int type, int data)
   // 16 bits int
   else if (data > -65536 && data < 65536) 
   {
+    log("addData int 16");
     if (frame->taille < 27)
     {
       frame->data[frame->taille] = type << 4;
@@ -820,23 +827,29 @@ void ydle::addData(Frame_t *frame, int type, int data)
       frame->data[frame->taille] += (data < 0 ? 1 : 0) << 0;
       frame->data[frame->taille + 1] = (data >> 8) & 0xFF;
       frame->data[frame->taille + 2] = data;
-      frame->taille += 4;
+      frame->taille += 3;
     }
     #ifdef _YDLE_DEBUG
     else
       log("data full for a 16 bits int");
     #endif // _YDLE_DEBUG
   }
+}
+
+// Ajout d'une valeur long int
+void ydle::addData(Frame_t *frame, int type, long int data)
+{
   // 24 bits int
-  else if (data > -16777216 && data < 16777216)
+  if (data > -16777216 && data < 16777216)
   {
+    log("addData long int 24");
     if (frame->taille < 26)
     {
       frame->data[frame->taille] = type << 4;
       frame->data[frame->taille] += YDLE_DATA_UINT8 << 1;
       frame->data[frame->taille] += (data < 0 ? 1 : 0) << 0;
-      frame->data[frame->taille + 1] = (data >> 16) & 0xFF;
-      frame->data[frame->taille + 2] = (data >> 8) & 0xFF;
+      frame->data[frame->taille + 1] = (data >> 16);
+      frame->data[frame->taille + 2] = (data >> 8);
       frame->data[frame->taille + 3] = data;
       frame->taille += 4;
     }
@@ -848,7 +861,8 @@ void ydle::addData(Frame_t *frame, int type, int data)
   // 32 bits int
   else if (data > -4294967296 && data < 4294967296)
   {
-    if (frame->taille < 26)
+    log("addData long int 32");
+    if (frame->taille < 25)
     {
       frame->data[frame->taille] = type << 4;
       frame->data[frame->taille] += YDLE_DATA_UINT8 << 1;
@@ -866,111 +880,10 @@ void ydle::addData(Frame_t *frame, int type, int data)
   }
 }
 
-// Ajout d'une valeur int
-//~ void ydle::addData(Frame_t *frame, int data)
-//~ {
-  //~ int current_index = frame->taille;
-  //~ frame->data[current_index] = ((0xFF00) & data) >> 8;
-  //~ ++current_index;
-  //~ frame->data[current_index] = ((0xFF) & data);
-  //~ ++current_index;
-  //~ frame->taille = current_index;
-//~ }
-
-// Ajout d'une valeur float
-//~ void ydle::addData(Frame_t *frame, float data)
-//~ {
-  //~ union _FP16 h_data = this->floatToHalf(data);
-  //~ addData(frame, (int)h_data.u);
-//~ }
-
-// Ajout d'une valeur int
-void ydle::addData(Frame_t *frame, int type, float fdata)
+// Fonction qui retourne "true" si la Node est initialisée
+bool ydle::initialized()
 {
-  int current_index = frame->taille;
-  int data;
-
-  //~ switch (type)
-  //~ {
-    //~ // 4 bits no signed
-    //~ case YDLE_DATA_STATE :
-      //~ if (frame->taille < 29)
-      //~ {
-          //~ data = (int)fdata;
-          //~ frame->taille++;
-          //~ frame->data[current_index] = type << 4;
-          //~ frame->data[current_index] += data & 0x0F;
-      //~ }
-      //~ #ifdef _YDLE_DEBUG
-      //~ else
-        //~ log("invalid trame len in addData");
-      //~ #endif // _YDLE_DEBUG
-      //~ break;
-
-    //~ // 12 bits signed
-    //~ case YDLE_DATA_DEGREEC:
-    //~ case YDLE_DATA_DEGREEF :
-    //~ case YDLE_DATA_PERCENT :
-    //~ case YDLE_DATA_TENSION :
-      //~ if (frame->taille < 28)
-      //~ {
-          //~ data = (int)(fdata * 20);
-          //~ frame->taille += 2;
-          //~ frame->data[current_index] = type << 4;
-          //~ if (data < 0)
-          //~ {
-              //~ data = data * (-1);
-              //~ frame->data[current_index] ^= 0x8;
-          //~ }
-          //~ frame->data[current_index] += (data >> 8) & 0x0F;
-          //~ frame->data[current_index + 1] = data;
-      //~ }
-      //~ #ifdef _YDLE_DEBUG
-      //~ else
-        //~ log("invalid trame len in addData");
-      //~ #endif // _YDLE_DEBUG
-      //~ break;
-
-    //~ // 12 bits no signed
-    //~ case YDLE_DATA_HUMIDITY:
-    //~ case YDLE_DATA_DISTANCE:
-    //~ case YDLE_DATA_PRESSION:
-      //~ if (type == YDLE_DATA_HUMIDITY)
-      //~ {
-          //~ data=(int)(fdata * 40);
-      //~ } else {
-          //~ data=(int)fdata;
-      //~ }
-      //~ if (frame->taille < 28)
-      //~ {
-        //~ frame->taille += 2;
-        //~ frame->data[current_index] = type << 4;
-        //~ frame->data[current_index] += (data >> 8) & 0x0F;
-        //~ frame->data[current_index + 1] = data;
-      //~ }
-      //~ #ifdef _YDLE_DEBUG
-      //~ else
-        //~ log("invalid trame len in addData");
-      //~ #endif // _YDLE_DEBUG
-      //~ break;
-
-    //~ // 20 bits no signed
-    //~ case YDLE_DATA_WATT  :
-      //~ data = (int)(fdata);
-      //~ if (frame->taille < 27)
-      //~ {
-        //~ frame->taille += 3;
-        //~ frame->data[current_index] = type << 4;
-        //~ frame->data[current_index] += (data >> 16) & 0x0F;
-        //~ frame->data[current_index + 1] = (data >> 8) & 0xFF;
-        //~ frame->data[current_index + 2] = data;
-      //~ }
-      //~ #ifdef _YDLE_DEBUG
-      //~ else
-        //~ log("invalid trame len in addData");
-      //~ #endif // _YDLE_DEBUG
-      //~ break;
-  //~ }
+  return m_initializedState;
 }
 
 /***************************************************************************************/
@@ -1041,28 +954,28 @@ void ydle::printFrame(Frame_t *trame)
   char sztmp[255];
 
   log("-----------------------------------------------");
-  sprintf(sztmp,"Emetteur :%d",trame->sender);
+  sprintf(sztmp,"Emetteur : %d",trame->sender);
   log(sztmp);
 
-  sprintf(sztmp,"Recepteur :%d",trame->receptor);
+  sprintf(sztmp,"Recepteur : %d",trame->receptor);
   log(sztmp);
 
-  sprintf(sztmp,"Type :%d",trame->type);
+  sprintf(sztmp,"Type : %d",trame->type);
   log(sztmp);
 
-  sprintf(sztmp,"Taille :%d",trame->taille);
+  sprintf(sztmp,"Taille : %d",trame->taille);
   log(sztmp);
 
-  sprintf(sztmp,"CRC :%d",trame->crc);
+  sprintf(sztmp,"CRC : %d",trame->crc);
   log(sztmp);
 
   sprintf(sztmp,"Data Hex: ");
-  for (int a=0;a<trame->taille-1;a++)
+  for (int a=0;a < trame->taille - 1;a++)
     sprintf(sztmp,"%s 0x%02X",sztmp,trame->data[a]);
   log(sztmp);
 
   sprintf(sztmp,"Data Dec: ");
-  for (int a=0;a<trame->taille-1;a++)
+  for (int a=0;a < trame->taille - 1;a++)
     sprintf(sztmp,"%s %d",sztmp,trame->data[a]);
   log(sztmp);
   log("-----------------------------------------------");
