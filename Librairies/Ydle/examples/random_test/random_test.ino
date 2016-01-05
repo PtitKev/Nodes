@@ -38,6 +38,6 @@ void loop()
         //Ajout humidité
         y.addData(&frame, YDLE_DATA_HUMIDITY, humidity);
         //envoi de la trame
-        y.send(&frame);
+        //y.send(&frame);
         delay(5000);
 }

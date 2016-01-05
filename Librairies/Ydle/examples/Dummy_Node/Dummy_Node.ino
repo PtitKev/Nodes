@@ -29,7 +29,7 @@ void loop()
 		//
 		Frame_t frame;
 		// Choisir le type de trame à envoyer
-		y.dataToFrame(&frame, /* Choisir le type de trame */);
+		y.dataToFrame(&frame, YDLE_TYPE_STATE);
 		// Ajouter les données dans la trame
 		y.addData(&frame, /* type de donnée */, /* donnée */);
 		y.addData(&frame, /* type de donnée */, /* donnée */);
