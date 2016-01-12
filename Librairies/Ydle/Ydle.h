@@ -1,56 +1,23 @@
-/// Ydle.h
-///
-/// Ydle implementation for Arduino
-/// See the README file in this directory for documentation
-///
-///
-/// Authors:
-/// Fabrice Scheider AKA Denia,
-/// Manuel Esteban AKA Yaug
-/// Matthieu Desgardin AKA Zescientist
-/// Yargol AKA Yargol
-/// Xylerk
-/// PtitKev
-///
-/// WebPage: http://www.ydle.fr/index.php
-/// Contact: http://forum.ydle.fr/index.php
-/// Licence: CC by sa (http://creativecommons.org/licenses/by-sa/3.0/fr/)
-/// Pll function inspired on VirtualWire library
-///
-/// \Mainpage Ydle library for Arduino
-///
-/// \Installation
-/// To install, unzip the library into the libraries sub-directory of your
-/// Arduino application directory. Then launch the Arduino environment; you
-/// should see the library in the Sketch->Import Library menu, and example
-/// code in File->Sketchbook->Examples->Ydle menu.
-///
-/// \Revision History:
-///
-/// \version 0.5.2 2014-02-18
-///		- Autoconvert value for DATA_DEGREEC, DATA_DEGREEF and DATA_HUMIDITY
-///
-/// \version 0.5.1 2014-01-17
-/// 	- Partial rewriting of code
-/// 	- Using timer interrupt for call the pll function
-///     - Add callback function to handle user command
-///     - Rename all #define to avoid confusion with other lib
-///
-/// \version 0.5 2013-09-24
-/// 	- Now use Pll function to receive signal
-/// 	- Partial asynchronous rewrite of the code
-///		- Parity bit
-/// 	- Variable frame length for more informations
-///
-/// \version 0.2 2013-08-20
-/// 	- Creation of the library
-///
-/// \version 0.1
-///     - Original release of the Node code
-///
-/// To use the Ydle library, you must have:
-///     #include <Ydle.h>
-/// At the top of your sketch.
+// Ydle.h
+//
+// Ydle implementation for Arduino
+// See the README file in this directory for documentation
+//
+// Authors:
+// Fabrice Scheider AKA Denia,
+// Manuel Esteban AKA Yaug
+// Matthieu Desgardin AKA Zescientist
+// Yargol AKA Yargol
+// Xylerk
+// PtitKev
+//
+// WebPage: http://www.ydle.fr/index.php
+// Contact: http://forum.ydle.fr/index.php
+// Licence: CC by sa (http://creativecommons.org/licenses/by-sa/3.0/fr/)
+//
+// To use the Ydle library, you must have:
+// #include <Ydle.h>
+// At the top of your sketch.
 
 #ifndef YDLE_H
 #define YDLE_H
@@ -73,24 +40,25 @@
 #define YDLE_MAX_FRAME 2
 
 #define YDLE_MAX_SIZE_FRAME 64
-#define YDLE_ACK_TIMEOUT 250
+#define YDLE_ACK_TIMEOUT 1000
 
-#define YDLE_TYPE_STATE				1 // Node send data
-#define YDLE_TYPE_CMD						2 // ON/OFF sortie etc...
-#define YDLE_TYPE_ACK						3 // Acquit last command
-#define YDLE_TYPE_STATE_ACK	4 // Node send data and want ACK
+#define YDLE_TYPE_STATE			1 // Node send data
+#define YDLE_TYPE_CMD				2 // ON/OFF sortie etc...
+#define YDLE_TYPE_ACK				3 // Acquit last command
+#define YDLE_TYPE_STATE_ACK		4 // Node send data and want ACK
 
-#define YDLE_DATA_BOOL					0 // true / false (1 bit / 8 bits data)
-#define YDLE_DATA_UINT8				1 // (8 bits / 16 bits data)
+#define YDLE_DATA_BOOL				0 // true / false (1 bit / 8 bits data)
+#define YDLE_DATA_UINT8			1 // (8 bits / 16 bits data)
 #define YDLE_DATA_UINT16			2 // (16 bits / 24 bits data)
 #define YDLE_DATA_UINT24			3 // (24 bits / 32 bits data)
 
-#define YDLE_CMD_LINK						0 // Link a node to the master
-#define YDLE_CMD_ON							1 // Send a ON command to node data = N° output
-#define YDLE_CMD_OFF						2 // Send a OFF command to node data = N° output
-#define YDLE_CMD_RESET					3 // Ask a node to reset is configuration
-#define YDLE_CMD_SET						4 // Set value
-#define YDLE_CMD_GET						5 // Get value
+#define YDLE_CMD_LINK				0 // Link a node to the master
+#define YDLE_CMD_ON					1 // Send a ON command to node data = N° output
+#define YDLE_CMD_OFF				2 // Send a OFF command to node data = N° output
+#define YDLE_CMD_RESET				3 // Ask a node to reset is configuration
+#define YDLE_CMD_SET				4 // Set value
+#define YDLE_CMD_GET				5 // Get value
+#define YDLE_CMD_PING				6 // PING
 
 // Défini un type de structure Frame_t
 struct Frame_t
@@ -122,10 +90,6 @@ volatile static bool m_initializedState; // Indique si le node est initialisé
 class ydle
 {
   private:
-    // On déclare les structures
-    Frame_t m_SendFrame;	 // send frame
-    Frame_t m_ReceivedFrame;	 // received frame
-    Frame_t m_FrameBuffer[YDLE_MAX_FRAME];
     ydleCallbackFunction callback;
     bool _callback_set;
 
@@ -197,11 +161,11 @@ class ydle
     void log(String msg) ;
     void log(String msg, int i) ;
 
-    // Affiche le contenue d'une trame reçue
+    // Affiche le contenue d'une trame
     void printFrame(Frame_t *trame) ;
 
     // Do something with a received Command
-    void onFrameReceived(Frame_t *frame) ;
+    void onCommandReceived(Frame_t *frame) ;
 
     // Compare le signal reçu au signal de référence
     bool checkSignal(Frame_t *frame) ;

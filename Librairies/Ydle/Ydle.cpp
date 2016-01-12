@@ -1,26 +1,27 @@
-/// Ydle.cpp
+// Ydle.cpp
 //
-/// Ydle implementation for Arduino
-/// See the README file in this directory for documentation
-/// For changes, look at Ydle.h
+// Ydle implementation for Arduino
+// See the README file in this directory for documentation.
 //
-/// Authors:
-/// Fabrice Scheider AKA Denia,
-/// Manuel Esteban AKA Yaug
-/// Matthieu Desgardin AKA Zescientist
-/// Yargol AKA Yargol
-/// Xylerk
-/// PtitKev
+// Authors:
+// Fabrice Scheider AKA Denia,
+// Manuel Esteban AKA Yaug
+// Matthieu Desgardin AKA Zescientist
+// Yargol AKA Yargol
+// Xylerk
+// PtitKev
 //
-/// WebPage: http://www.ydle.fr/index.php
-/// Contact: http://forum.ydle.fr/index.php
-/// Licence: CC by sa (http://creativecommons.org/licenses/by-sa/3.0/fr/)
-/// Pll function inspired on VirtualWire library
+// WebPage: http://www.ydle.fr/index.php
+// Contact: http://forum.ydle.fr/index.php
+// Licence: CC by sa (http://creativecommons.org/licenses/by-sa/3.0/fr/)
+//
+// Pll function inspired on VirtualWire library
 
 #include <TimerOne.h>
 #include <avr/eeprom.h>
 
 #include "Float.h"
+#include "Crc.h"
 #include "Ydle.h"
 
 const PROGMEM char _atm_crc8_table[256] = {
@@ -58,23 +59,26 @@ const PROGMEM char _atm_crc8_table[256] = {
   0xE6, 0xE1, 0xE8, 0xEF, 0xFA, 0xFD, 0xF4, 0xF3
 };
 
-
-static Frame_t g_sendFrameBuffer; // Une seule pour le moment
+// On déclare les structures
+static Frame_t g_SendFrame;   // send frame
+static Frame_t g_ReceivedFrame;   // received frame
+static Frame_t g_FrameBuffer[YDLE_MAX_FRAME];
+static Frame_t g_SendFrameBuffer; // Une seule pour le moment
 
 static uint8_t m_data[YDLE_MAX_SIZE_FRAME]; // data + crc
 
-static uint8_t pinRx = 12;				// Le numéro de la broche IO utilisée pour le module récepteur
-static uint8_t pinTx = 10;				// Le numéro de la broche IO utilisée pour le module émetteur
-static uint8_t pinLed = 13;			// Le numéro de la broche IO utilisée pour la Led de statut
-static uint8_t pinCop = 8;				// Permet la recopie du signal sur une sortie pour vérification à l'oscilloscope
-static uint8_t pinButton = 3;		// Le numéro de la broche IO utilisée pour l'installation du boutton de resettage
+static uint8_t pinRx = 12;        // Le numéro de la broche IO utilisée pour le module récepteur
+static uint8_t pinTx = 10;        // Le numéro de la broche IO utilisée pour le module émetteur
+static uint8_t pinLed = 13;      // Le numéro de la broche IO utilisée pour la Led de statut
+static uint8_t pinCop = 8;        // Permet la recopie du signal sur une sortie pour vérification à l'oscilloscope
+static uint8_t pinButton = 3;    // Le numéro de la broche IO utilisée pour l'installation du boutton de resettage
 
-static uint8_t start_bit = 0x6559; // Octet de start
+static uint16_t start_bit = 0x6559; // Octet de start
 static uint8_t start_bit2 = 0b01000010; // Octet de start après décodage Manchester
 
-volatile uint8_t sample_value = 0;				// Disponibilité d'un sample
-volatile uint8_t sample_count = 1;				// Nombre de samples sur la période en cours
-volatile uint8_t last_sample_value = 0;	// La valeur du dernier sample reçu
+volatile uint8_t sample_value = 0;        // Disponibilité d'un sample
+volatile uint8_t sample_count = 1;        // Nombre de samples sur la période en cours
+volatile uint8_t last_sample_value = 0;  // La valeur du dernier sample reçu
 // La somme des valeurs des samples. si inférieur à 5 "1" samples dans le cycle de PLL
 // le bit est déclaré comme 0, sinon à 1
 static uint8_t sample_sum = 0;
@@ -83,25 +87,24 @@ static uint8_t sample_sum = 0;
 // Quand la PLL est synchronisée, la transition de bit arrive quand la rampe vaut 0
 static uint8_t pll_ramp = 0;
 
-static uint16_t rx_bits = 0;				// Les 16 derniers bits reçus, pour repérer l'octet de start
-static uint8_t rx_active = 0;			// Flag pour indiquer la bonne réception du message de start
-//~ volatile unsigned long t_start = 0; // Temps du premier sample de chaque bit
+static uint16_t rx_bits = 0;        // Les 16 derniers bits reçus, pour repérer l'octet de start
+static uint8_t rx_active = 0;      // Flag pour indiquer la bonne réception du message de start
 
 #define YDLE_SPEED 1000    // Le débit de transfert en bits/secondes
 #define YDLE_TPER 1000000/YDLE_SPEED    // La période d'un bit en microseconds
 #define YDLE_FBIT YDLE_TPER/8            // La fréquence de prise de samples
 
-static uint8_t bit_value = 0;	// La valeur du dernier bit récupéré
-static uint8_t bit_count = 0;	// Le nombre de bits récupérés
+static uint8_t bit_value = 0;  // La valeur du dernier bit récupéré
+static uint8_t bit_count = 0;  // Le nombre de bits récupérés
 
-static uint8_t sender = 0;			// Id sender reçue
-static uint8_t receptor = 0;	// Id receptor reçue
-static uint8_t type = 0;				// Info type reçue
-static uint8_t taille = 0;				// Info taille reçue
+static uint8_t sender = 0;      // Id sender reçue
+static uint8_t receptor = 0;  // Id receptor reçue
+static uint8_t type = 0;        // Info type reçue
+static uint8_t taille = 0;        // Info taille reçue
 
-//~ static uint8_t parite = false;		// Info parité reçue
-static int rx_bytes_count = 0;	// Nombre d'octets reçus
-static uint8_t length_ok = 0;		// Disponibilité de la taille de trame
+//~ static uint8_t parite = false;    // Info parité reçue
+static uint8_t rx_bytes_count = 0;  // Nombre d'octets reçus
+static uint8_t length_ok = 0;    // Disponibilité de la taille de trame
 
 volatile uint8_t wait_ack = 0;
 volatile uint8_t last_check = 0;
@@ -126,7 +129,7 @@ ydle::ydle(int rx, int tx, int button)
 {
   m_bLnkSignalReceived = false;
   m_initializedState = false;
-  this->_callback_set = false;
+  _callback_set = false;
   readEEProm();
 
   pinRx = rx;
@@ -149,7 +152,7 @@ ydle::ydle()
 {
   m_bLnkSignalReceived = false;
   m_initializedState = false;
-  this->_callback_set = false;
+  _callback_set = false;
   readEEProm();
 
   pinMode(pinRx, INPUT);
@@ -215,6 +218,8 @@ void ydle::timerInterrupt()
     }
   }
 }
+//~ bool empty = true;
+//~ volatile unsigned long timerdebug = 0;
 
 void ydle::pll()
 {
@@ -243,19 +248,17 @@ void ydle::pll()
   // On vérifie si la rampe à atteint son maximum de 80
   if (pll_ramp >= 160)
   {
-    //~ t_start = micros();
     // On ajoute aux 16 derniers bits reçus rx_bits, MSB first
     // On stock les 16 derniers bits
     rx_bits <<= 1;
-
     // On vérifie la somme des samples sur la période pour savoir combien était à l'état haut
     // S'ils étaient < 2, on déclare un 0, sinon un 1;
     if (sample_sum >= 5)
     {
-      rx_bits |= 0x1;
+      rx_bits |= 1;
       bit_value = 1;
     } else {
-      rx_bits |= 0x0;
+      rx_bits |= 0;
       bit_value = 0;
     }
     pll_ramp -= 160; // On soustrait la taille maximale de la rampe à sa valeur actuelle
@@ -265,7 +268,6 @@ void ydle::pll()
     // Si l'on est dans le message, c'est ici qu'on traite les données
     if (rx_active)
     {
-      log("ok");
       bit_count++;
       // On récupére les bits et on les places dans des variables
       // 1 bit sur 2 avec Manchester
@@ -317,7 +319,6 @@ void ydle::pll()
           //~ parite = 0;
           taille = 0;
           memset(m_data, 0, sizeof(m_data));
-          //~ t_start = micros();
           return;
         }
       }
@@ -330,19 +331,19 @@ void ydle::pll()
         #endif
 
         rx_active = false;
-        m_ReceivedFrame.sender = sender;
-        m_ReceivedFrame.receptor = receptor;
-        m_ReceivedFrame.type = type;
-        m_ReceivedFrame.taille = rx_bytes_count; // data + crc
-        memcpy(m_ReceivedFrame.data, m_data, rx_bytes_count - 1); // copy data len - crc
-        m_ReceivedFrame.crc = m_data[rx_bytes_count - 1];
+        g_ReceivedFrame.sender = sender;
+        g_ReceivedFrame.receptor = receptor;
+        g_ReceivedFrame.type = type;
+        g_ReceivedFrame.taille = rx_bytes_count; // data + crc
+        memcpy(g_ReceivedFrame.data, m_data, rx_bytes_count - 1); // copy data len - crc
+        g_ReceivedFrame.crc = m_data[rx_bytes_count - 1];
 
         // May be an array ?
         if (pFrame == YDLE_MAX_FRAME)
         {
           pFrame = 0;
         }
-        memcpy(&m_FrameBuffer[pFrame], &m_ReceivedFrame, sizeof(Frame_t));
+        memcpy(&g_FrameBuffer[pFrame], &g_ReceivedFrame, sizeof(Frame_t));
         pFrame++;
         frameReadyToBeRead = true;
 
@@ -411,8 +412,8 @@ void ydle::writeEEProm()
 // Function to attach a user defined function for handle received frame
 void ydle::attach(ydleCallbackFunction function)
 {
-  this->callback = function;
-  this->_callback_set = true;
+  callback = function;
+  _callback_set = true;
 }
 
 /***************************************************************************************/
@@ -428,7 +429,7 @@ uint8_t ydle::send(Frame_t *frame)
   {
     if (wait_ack != 1)
     {
-      memcpy(&g_sendFrameBuffer, &frame, sizeof(Frame_t));
+      memcpy(&g_SendFrameBuffer, frame, sizeof(Frame_t));
       wait_ack = 1;
     }
   }
@@ -486,43 +487,44 @@ uint8_t ydle::receive()
   {
     for (int i = 0; i < (int)pFrame; i++)
     {
-      crc_p = computeCrc(&m_FrameBuffer[i]);
-      if (crc_p != m_FrameBuffer[i].crc)
+      crc_p = computeCrc(&g_FrameBuffer[i]);
+      if (crc_p != g_FrameBuffer[i].crc)
       {
         #ifdef _YDLE_DEBUG
         log("crc error!!!!!!!!!");
-        printFrame(&m_FrameBuffer[i]);
+        printFrame(&g_FrameBuffer[i]);
+        log("crc error!!!!!!!!!");
         #endif // _YDLE_DEBUG
       } else {
         #ifdef _YDLE_DEBUG
         log("Frame ready to be handled");
         #endif // _YDLE_DEBUG
         // We receive a CMD so trait it
-        if (m_FrameBuffer[i].type == YDLE_TYPE_CMD)
+        if (g_FrameBuffer[i].type == YDLE_TYPE_CMD)
         {
           #ifdef _YDLE_DEBUG
-          printFrame(&m_FrameBuffer[i]);
+          printFrame(&g_FrameBuffer[i]);
           #endif // _YDLE_DEBUG
-          onFrameReceived(&m_FrameBuffer[i]);
-        } else if (m_FrameBuffer[i].type == YDLE_TYPE_ACK)
+          onCommandReceived(&g_FrameBuffer[i]);
+        } else if (g_FrameBuffer[i].type == YDLE_TYPE_ACK)
         {
-          if (m_FrameBuffer[i].sender == g_sendFrameBuffer.receptor
-              && m_FrameBuffer[i].receptor == g_sendFrameBuffer.sender) {
+          if (g_FrameBuffer[i].sender == g_SendFrameBuffer.receptor
+              && g_FrameBuffer[i].receptor == g_SendFrameBuffer.sender) {
             #ifdef _YDLE_DEBUG
             log("ACK received");
             #endif // _YDLE_DEBUG
+            memcpy(&g_SendFrameBuffer, 0, sizeof(Frame_t));
             wait_ack = 0;
             retry = 0;
             last_check = 0;
-            return 1;
           }
         } else {
           #ifdef _YDLE_DEBUG
-          printFrame(&m_FrameBuffer[i]);
+          printFrame(&g_FrameBuffer[i]);
           #endif
           // Send the frame to the callback function
-          if (this->_callback_set)
-            this->callback(&m_FrameBuffer[i]);
+          if (_callback_set)
+            callback(&g_FrameBuffer[i]);
         }
         // Frame handled
       }
@@ -539,7 +541,7 @@ uint8_t ydle::receive()
         if (curt - last_check >= YDLE_ACK_TIMEOUT)
         {
           last_check = curt;
-          this->send(&g_sendFrameBuffer);
+          send(&g_SendFrameBuffer);
           #ifdef _YDLE_DEBUG
           log("Timeout, resending frame");
           #endif
@@ -560,14 +562,14 @@ uint8_t ydle::receive()
 }
 
 // Do something with a received Command
-void ydle::onFrameReceived(Frame_t *frame)
+void ydle::onCommandReceived(Frame_t *frame)
 {
   int litype;
   long livalue;
-	int index = 0;
+  int index = 0;
 
-	// TODO: Need a better method to get the data
-  while (this->extractData(frame, index, litype, livalue) == 1)
+  // TODO: Need a better method to get the data
+  while (extractData(frame, index, litype, livalue) == 1)
   {
     #ifdef _YDLE_DEBUG
     log("Type of CMD Message Received ", litype);
@@ -598,6 +600,9 @@ void ydle::onFrameReceived(Frame_t *frame)
       #ifdef _YDLE_DEBUG
       log("OFF");
       #endif
+    } else if (_callback_set)
+    {
+        callback(frame);
     }
 
     // send ACK if frame is for us.
@@ -606,14 +611,15 @@ void ydle::onFrameReceived(Frame_t *frame)
       #ifdef _YDLE_DEBUG
       log("**************Send ACK********************");
       #endif
-      Frame_t response;
-      initFrame(&response, YDLE_TYPE_ACK);    // Create a new ACK Frame
+      //~ Frame_t response;
+      memset(&g_SendFrame, 0x0, sizeof(Frame_t));
+      initFrame(&g_SendFrame, YDLE_TYPE_ACK);    // Create a new ACK Frame
       #ifdef _YDLE_DEBUG
       log("End send ack");
       #endif
-      send(&response);
+      send(&g_SendFrame);
     }
-		index++;
+    index++;
   }
 
 }
@@ -662,7 +668,7 @@ int ydle::extractData(Frame_t *frame, int index, int &itype, long &ivalue)
   int iCurrentIndex = 0;
   int iModifType = 0;
   int iNbByteRest;
-	bool bifValueisNegativ=false;
+  bool bifValueisNegativ=false;
 
   // Min 1 byte of data with the 1 bytes CRC always present, else there is no data
   if (frame->taille < 2)
