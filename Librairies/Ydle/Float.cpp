@@ -1,8 +1,8 @@
 /*
  * Float.cpp
  *
- *  Created on: Feb 8, 2014
- *      Author: denia
+ * Created on: Feb 8, 2014
+ * Author: denia
  */
 
 #include "Float.h"
